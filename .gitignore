@@ -1,0 +1,34 @@
+node_modules
+
+/.cache
+/build
+/public/build
+.env
+.env.local
+.env.*.local
+
+# Remix / Vite
+.vite
+/app/.server/_compiled
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Test / coverage
+/coverage
+/test-results

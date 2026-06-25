@@ -1,0 +1,6 @@
+# pnpm blocks dependency build scripts by default. esbuild downloads its
+# platform binary in a postinstall step and Vite won't run without it.
+# unrs-resolver is used by the ESLint TypeScript import resolver.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true
