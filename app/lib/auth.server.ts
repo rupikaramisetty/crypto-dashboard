@@ -19,6 +19,8 @@ export interface User {
 
 // ---------------------------------------------------------------------------
 // Demo user store — swap this out for a real DB call when adding a backend.
+// The array is intentionally mutable so registerUser() can add new accounts
+// that persist for the lifetime of the server process.
 // ---------------------------------------------------------------------------
 const DEMO_USERS: Array<User & { password: string }> = [
   { id: "1", email: "demo@example.com", name: "Demo User", password: "password" },
@@ -32,8 +34,25 @@ export function findUserByEmail(email: string) {
 export function validateCredentials(email: string, password: string): User | null {
   const user = findUserByEmail(email);
   if (!user || user.password !== password) return null;
-  // Return the User shape without the password field.
   return { id: user.id, email: user.email, name: user.name };
+}
+
+/**
+ * Registers a new user. Returns the created User or throws if the email is
+ * already taken. In a real app, replace this with a DB insert + password hash.
+ */
+export function registerUser(name: string, email: string, password: string): User {
+  if (findUserByEmail(email)) {
+    throw new Error("An account with that email already exists.");
+  }
+  const newUser = {
+    id: String(DEMO_USERS.length + 1),
+    name: name.trim(),
+    email: email.toLowerCase().trim(),
+    password,
+  };
+  DEMO_USERS.push(newUser);
+  return { id: newUser.id, name: newUser.name, email: newUser.email };
 }
 
 // ---------------------------------------------------------------------------
