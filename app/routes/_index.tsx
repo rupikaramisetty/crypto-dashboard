@@ -1,5 +1,5 @@
 import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
-import { useLoaderData, useRevalidator } from "@remix-run/react";
+import { Form, useLoaderData, useRevalidator } from "@remix-run/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CryptoGrid } from "~/components/CryptoGrid";
@@ -11,14 +11,16 @@ import {
   EmptyState,
   ErrorState,
 } from "~/components/states";
-import { usePersistedOrder } from "~/hooks/usePersistedOrder";
 import { useAutoRefresh } from "~/hooks/useAutoRefresh";
+import { usePersistedOrder } from "~/hooks/usePersistedOrder";
+import { getUser, type User } from "~/lib/auth.server";
 import {
   CoinbaseError,
   fetchCryptoRates,
   type RatesPayload,
 } from "~/lib/coinbase.server";
 import { applyOrder, filterCryptos, type CryptoRate } from "~/lib/crypto";
+import { requireUserId } from "~/lib/session.server";
 
 const AUTO_REFRESH_MS = 60_000;
 
@@ -27,25 +29,23 @@ export const meta: MetaFunction = () => [
 ];
 
 type LoaderData =
-  | { ok: true; payload: RatesPayload }
-  | { ok: false; error: string };
+  | { ok: true; payload: RatesPayload; user: User }
+  | { ok: false; error: string; user: User };
 
-/**
- * Runs on the server on every page load (and on every revalidation triggered by
- * the refresh button / auto-refresh). We catch Coinbase failures and return a
- * typed error instead of throwing, so the UI can show an inline, retryable
- * error state without unmounting the whole page.
- */
 export async function loader({ request }: LoaderFunctionArgs): Promise<LoaderData> {
+  // Redirect to /login if not authenticated.
+  await requireUserId(request);
+  const user = (await getUser(request))!;
+
   try {
     const payload = await fetchCryptoRates(request.signal);
-    return { ok: true, payload };
+    return { ok: true, payload, user };
   } catch (error) {
     const message =
       error instanceof CoinbaseError
         ? error.message
         : "An unexpected error occurred while loading exchange rates.";
-    return { ok: false, error: message };
+    return { ok: false, error: message, user };
   }
 }
 
@@ -58,8 +58,6 @@ export default function Index() {
   const [query, setQuery] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  // Keep the last successfully-loaded data so a transient refresh failure shows
-  // a banner over stale-but-useful cards instead of wiping the dashboard.
   const [lastGood, setLastGood] = useState<RatesPayload | null>(
     data.ok ? data.payload : null
   );
@@ -71,11 +69,8 @@ export default function Index() {
     revalidator.revalidate();
   }, [revalidator]);
 
-  // Auto-refresh on an interval (paused when the tab is hidden, see the hook).
   useAutoRefresh(refresh, AUTO_REFRESH_MS, autoRefresh && lastGood !== null);
 
-  // Memoised so the dependent useMemo hooks below have a stable reference even
-  // while `lastGood` is null (otherwise `?? []` allocates a new array each render).
   const baseRates: CryptoRate[] = useMemo(
     () => lastGood?.rates ?? [],
     [lastGood]
@@ -98,17 +93,14 @@ export default function Index() {
     setOrder(orderedSymbols);
   }
 
-  // First load with no cached data and a hard error → full error state.
   const showFatalError = !data.ok && lastGood === null;
-  // First load still in flight (no data yet) — only briefly on client nav.
   const showSkeleton = lastGood === null && data.ok;
 
   return (
     <div className="min-h-screen">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <Header />
+        <Header user={data.user} />
 
-        {/* Toolbar */}
         <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <FilterInput
             value={query}
@@ -128,13 +120,13 @@ export default function Index() {
           )}
         </div>
 
-        {/* Stale-data warning banner (we have old cards but the latest refresh failed). */}
         {!data.ok && lastGood !== null && (
           <p
             role="alert"
             className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
           >
-            Showing the last known rates — the most recent refresh failed: {data.error}
+            Showing the last known rates — the most recent refresh failed:{" "}
+            {data.error}
           </p>
         )}
 
@@ -157,7 +149,6 @@ export default function Index() {
           </div>
         )}
 
-        {/* Content */}
         <div className="mt-6">
           {showFatalError ? (
             <ErrorState
@@ -184,10 +175,10 @@ export default function Index() {
   );
 }
 
-function Header() {
+function Header({ user }: { user: User }) {
   return (
-    <header className="flex items-start justify-between gap-4">
-      <div>
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-widest text-indigo-500">
           Live Coinbase Rates
         </p>
@@ -199,7 +190,30 @@ function Header() {
           reorder.
         </p>
       </div>
-      <ThemeToggle />
+
+      <div className="flex items-center gap-3">
+        {/* User badge */}
+        <div className="hidden items-center gap-2 sm:flex">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300">
+            {user.name.charAt(0).toUpperCase()}
+          </span>
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+            {user.name}
+          </span>
+        </div>
+
+        {/* Logout */}
+        <Form method="post" action="/logout">
+          <button
+            type="submit"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            Sign out
+          </button>
+        </Form>
+
+        <ThemeToggle />
+      </div>
     </header>
   );
 }

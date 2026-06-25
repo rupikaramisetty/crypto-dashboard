@@ -57,19 +57,19 @@ export const CryptoCard = forwardRef<HTMLDivElement, CryptoCardProps>(
         </header>
 
         <dl className="grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+          <div className="overflow-hidden rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
             <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
               Price (USD)
             </dt>
-            <dd className="mt-1 text-lg font-bold tabular-nums text-slate-900 dark:text-slate-50">
+            <dd className="mt-1 break-all text-base font-bold tabular-nums text-slate-900 dark:text-slate-50 sm:text-lg">
               {formatUsd(rate.usd)}
             </dd>
           </div>
-          <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+          <div className="overflow-hidden rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
             <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
               Price (BTC)
             </dt>
-            <dd className="mt-1 text-lg font-bold tabular-nums text-amber-600 dark:text-amber-400">
+            <dd className="mt-1 break-all text-base font-bold tabular-nums text-amber-600 dark:text-amber-400 sm:text-lg">
               {formatBtc(rate.btc)}
             </dd>
           </div>
