@@ -2,9 +2,10 @@
 
 A real-time cryptocurrency dashboard built with **Remix + React + TypeScript**.
 It displays live USD and BTC exchange rates from the **Coinbase API**, with
-filtering, drag-and-drop reordering, auto-refresh, and a dark/light theme.
+cookie-based authentication, filtering, drag-and-drop reordering, auto-refresh,
+and a dark/light theme.
 
-![Tech](https://img.shields.io/badge/Remix-2.x-black) ![Tech](https://img.shields.io/badge/React-18-blue) ![Tech](https://img.shields.io/badge/TypeScript-strict-3178c6) ![Tests](https://img.shields.io/badge/tests-34%20passing-brightgreen)
+![Tech](https://img.shields.io/badge/Remix-2.x-black) ![Tech](https://img.shields.io/badge/React-18-blue) ![Tech](https://img.shields.io/badge/TypeScript-strict-3178c6) ![Unit tests](https://img.shields.io/badge/unit%20tests-34%20passing-brightgreen) ![E2E tests](https://img.shields.io/badge/e2e-47%20across%203%20devices-brightgreen)
 
 ---
 
@@ -19,11 +20,12 @@ filtering, drag-and-drop reordering, auto-refresh, and a dark/light theme.
 
 ### Bonus features included
 
+- ✅ **User authentication** — cookie-session login **and** signup, with validation, a duplicate-email guard, auto-login on registration, and a protected dashboard (see [Authentication](#-authentication))
 - ✅ **Order persisted to `localStorage`** (survives reloads; "Reset order" button)
 - ✅ **Dark / light mode toggle** (persisted, no flash-of-wrong-theme on load)
 - ✅ **Loading, empty, and error states** (skeletons, inline retryable errors, stale-data banner)
 - ✅ **Unit tests** (Vitest + Testing Library — 34 tests across formatting, filtering, ordering, the Coinbase fetch/transform incl. error paths, and the card component)
-- ⬜ User authentication — intentionally skipped (see [Tradeoffs](#-decisions--tradeoffs))
+- ✅ **End-to-end tests** (Playwright — 47 tests run across Desktop, Mobile, and Tablet device profiles)
 
 ---
 
@@ -48,8 +50,11 @@ pnpm dev
 | `pnpm start` | Serve the production build |
 | `pnpm typecheck` | `tsc --noEmit` (strict mode) |
 | `pnpm lint` | ESLint (a11y, hooks, import, TS rules) |
-| `pnpm test` | Run the Vitest suite once |
+| `pnpm test` | Run the Vitest unit suite once |
 | `pnpm test:watch` | Vitest in watch mode |
+| `pnpm test:e2e` | Run the Playwright E2E suite (Desktop, Mobile, Tablet) |
+| `pnpm test:e2e:ui` | Playwright in interactive UI mode |
+| `pnpm test:all` | Run unit tests, then E2E tests |
 
 > **Note on pnpm:** pnpm blocks dependency build scripts by default. This repo
 > pre-approves `esbuild` (needed by Vite) in `pnpm-workspace.yaml`, so a fresh
@@ -83,7 +88,10 @@ This keeps us to **one network request per refresh** (`app/lib/coinbase.server.t
 app/
 ├── root.tsx                 # Document shell, fonts, no-flash theme script, error boundary
 ├── routes/
-│   └── _index.tsx           # The dashboard: loader (server fetch) + client orchestration
+│   ├── _index.tsx           # The dashboard (protected): loader (server fetch) + client orchestration
+│   ├── login.tsx            # Sign-in page: action validates credentials + commits the session
+│   ├── signup.tsx           # Registration page: validates input, registers, auto-logs-in
+│   └── logout.tsx           # Action destroys the session and redirects to /login
 ├── components/
 │   ├── CryptoCard.tsx       # Presentational card (no DnD logic — easy to test)
 │   ├── SortableCryptoCard.tsx  # Wraps CryptoCard with @dnd-kit sortable behaviour
@@ -99,6 +107,8 @@ app/
 │   └── useAutoRefresh.ts    # Interval refresh, paused when tab is hidden
 └── lib/
     ├── coinbase.server.ts   # Server-only Coinbase fetch + rate transform
+    ├── session.server.ts    # Cookie session storage + getUserId / requireUserId helpers
+    ├── auth.server.ts        # User store, credential validation, registration, session actions
     ├── crypto.ts            # Domain types, tracked-coin list, filter/order helpers
     ├── format.ts            # USD/BTC/relative-time formatting
     └── theme.ts             # Theme constants + the pre-paint init script
@@ -106,9 +116,42 @@ app/
 
 **Server vs. client split.** Fetching happens in the Remix `loader` (server),
 so API details never reach the browser bundle (`*.server.ts`) and the first
-paint already contains data (good for SEO/perf). Interactive state
-(filter text, card order, theme, refresh) lives on the client. Refresh re-runs
-the loader via `useRevalidator`, so there's a single source of truth for rates.
+paint already contains data (good for SEO/perf). The dashboard loader calls
+`requireUserId`, redirecting unauthenticated visitors to `/login`. Interactive
+state (filter text, card order, theme, refresh) lives on the client. Refresh
+re-runs the loader via `useRevalidator`, so there's a single source of truth
+for rates.
+
+---
+
+## 🔐 Authentication
+
+The dashboard is gated behind a cookie-based session. Unauthenticated requests
+to `/` are redirected to `/login?redirectTo=/`.
+
+**Demo credentials** (pre-seeded):
+
+```
+email:    demo@example.com
+password: password
+```
+
+You can also **create a new account** at `/signup` — name, email, and password
+(min. 8 chars, with confirmation) are validated, duplicate emails are rejected,
+and a successful signup logs you straight in.
+
+**How it works**
+
+- `app/lib/session.server.ts` configures `createCookieSessionStorage`
+  (httpOnly, signed cookie) and exposes `getUserId` / `requireUserId`.
+- `app/lib/auth.server.ts` holds the user store, `validateCredentials`,
+  `registerUser`, and the `createUserSession` / `logout` actions.
+- `app/routes/_index.tsx` calls `requireUserId` at the top of its loader, so
+  the dashboard is unreachable without a valid session.
+
+> **Demo simplifications:** the user store is in memory and passwords are not
+> hashed, so accounts reset when the server restarts. Both are isolated to
+> `auth.server.ts` and called out in [Decisions & tradeoffs](#-decisions--tradeoffs).
 
 ---
 
@@ -128,10 +171,12 @@ the loader via `useRevalidator`, so there's a single source of truth for rates.
   control which coins appear and their default order.
 - **Tailwind for styling** — fast to write, consistent spacing/scales, and
   trivial dark-mode via the `dark:` variant + `class` strategy.
-- **No authentication** — listed as optional. With no per-user data to protect
-  (rates are public, order/theme are device-local in `localStorage`), auth would
-  add ceremony without real value for this exercise. See `AI_GUIDELINES.md` for
-  how I'd add it if required.
+- **Authentication is cookie-session based, with an in-memory user store** —
+  the Remix-idiomatic approach (`createCookieSessionStorage` + `requireUserId`
+  in the loader). The user store lives in memory (`auth.server.ts`) and
+  passwords are compared in plain text, which is deliberate for a no-infra demo:
+  swapping in a real DB query and a bcrypt/argon2 hash is a localized change.
+  New accounts created via signup persist for the lifetime of the server process.
 - **Rates are indicative** — Coinbase exchange-rates are spot indicative values,
   fine for a dashboard demo; a trading app would use the order-book/ticker API.
 
@@ -139,11 +184,13 @@ the loader via `useRevalidator`, so there's a single source of truth for rates.
 
 ## 🧪 Testing
 
+### Unit tests (Vitest + Testing Library — 34 tests)
+
 ```bash
 pnpm test
 ```
 
-Tests focus on the logic most worth protecting:
+Focused on the logic most worth protecting:
 
 - `lib/crypto.test.ts` — filtering by name/symbol; order application edge cases
   (missing ids, duplicates, appended coins).
@@ -153,6 +200,24 @@ Tests focus on the logic most worth protecting:
 - `lib/format.test.ts` — currency precision, BTC trimming, relative time.
 - `components/CryptoCard.test.tsx` — renders name, symbol, both prices, and an
   accessible reorder handle.
+
+### End-to-end tests (Playwright — 47 tests × 3 device profiles)
+
+```bash
+pnpm test:e2e          # headless run across Desktop, Mobile, Tablet
+pnpm test:e2e:ui       # interactive UI mode
+```
+
+Run against the dev server (auto-started via `playwright.config.ts`) on
+**Desktop Chrome**, **Mobile Safari (iPhone 12)**, and **Tablet (iPad Pro 11)**:
+
+- `e2e/auth.spec.ts` — login validation, demo-credential sign-in, route
+  protection, sign-out, and the full signup flow (validation, duplicate-email
+  guard, auto-login).
+- `e2e/dashboard.spec.ts` — card rendering, filtering by name/symbol, refresh
+  and auto-refresh controls, theme toggle + persistence, and drag-handle state.
+- `e2e/responsive.spec.ts` — responsive grid columns and no-horizontal-overflow
+  checks per breakpoint.
 
 ---
 

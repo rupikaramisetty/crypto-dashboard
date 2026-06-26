@@ -29,7 +29,8 @@ changes that stay consistent with the existing architecture.
 5. **Accessibility is not optional.** Interactive elements need labels/roles;
    ESLint's `jsx-a11y` rules are enforced. Run `pnpm lint` before finishing.
 6. **Definition of done:** `pnpm typecheck && pnpm lint && pnpm test` all pass,
-   and `pnpm build` succeeds.
+   and `pnpm build` succeeds. For changes to user-facing flows, also run the
+   Playwright E2E suite (`pnpm test:e2e`).
 
 ---
 
@@ -47,6 +48,9 @@ changes that stay consistent with the existing architecture.
 | Loading / empty / error visuals | `app/components/states.tsx` |
 | Theme behaviour | `app/hooks/useTheme.ts` + `app/lib/theme.ts` |
 | Page composition / data orchestration | `app/routes/_index.tsx` |
+| Login / signup / logout pages | `app/routes/login.tsx` · `signup.tsx` · `logout.tsx` |
+| Auth: user store, credentials, registration, sessions | `app/lib/auth.server.ts` |
+| Cookie session config + `requireUserId` guard | `app/lib/session.server.ts` |
 | Global document, fonts, error boundary | `app/root.tsx` |
 
 ---
@@ -90,19 +94,30 @@ changes that stay consistent with the existing architecture.
 Edit `AUTO_REFRESH_MS` in `app/routes/_index.tsx`. The hook already pauses
 refresh while the browser tab is hidden.
 
-### 🔐 Add user authentication (if required)
+### 🔐 Authentication (already implemented)
 
-The current app has no per-user server data, so auth was intentionally omitted.
-To add it the Remix-idiomatic way:
+Auth is wired up the Remix-idiomatic way, cookie-session based:
 
-1. Add a session store with `createCookieSessionStorage` in a new
-   `app/lib/session.server.ts`.
-2. Add `app/routes/login.tsx` (+ `logout`) with an `action` that validates
-   credentials and commits the session cookie.
-3. Protect routes by calling a `requireUser(request)` helper at the top of the
-   relevant `loader`/`action`; redirect to `/login` when absent.
-4. Persist per-user card order/theme server-side (keyed by user id) instead of
-   `localStorage` if cross-device sync is desired.
+- `app/lib/session.server.ts` — `createCookieSessionStorage` (httpOnly, signed)
+  plus `getSession` / `getUserId` / `requireUserId`.
+- `app/lib/auth.server.ts` — the user store (`DEMO_USERS`), `validateCredentials`,
+  `registerUser`, and the `createUserSession` / `logout` / `getUser` actions.
+- `app/routes/login.tsx`, `signup.tsx`, `logout.tsx` — the auth pages/actions.
+- `app/routes/_index.tsx` — calls `requireUserId` at the top of its loader, so
+  the dashboard redirects to `/login?redirectTo=…` when there's no session.
+
+**To protect a new route:** call `await requireUserId(request)` (or `getUser`)
+at the top of its `loader`/`action`.
+
+**Demo simplifications to replace for production:**
+
+1. **Persistence** — `DEMO_USERS` is an in-memory array, so accounts reset on
+   server restart. Swap it for a real DB query (users keyed by email/id).
+2. **Password hashing** — passwords are compared in plain text. Replace the
+   comparison in `validateCredentials` and the store in `registerUser` with a
+   bcrypt/argon2 hash + verify.
+3. **Per-user data** — card order/theme are still device-local in `localStorage`.
+   For cross-device sync, persist them server-side keyed by user id.
 
 ### 🎨 Styling conventions
 
